@@ -1,4 +1,9 @@
 .venv/
+.legacy-python/
+bin/
+obj/
+TestResults/
+publish/
 __pycache__/
 *.py[cod]
 .tools/

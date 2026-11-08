@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>VoiceSiteLauncher</AssemblyName>
+    <Version>2.0.0</Version>
+    <VCRuntimeDirectory Condition="'$(VCRuntimeDirectory)' == ''">$(SystemRoot)\System32</VCRuntimeDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>VoiceSiteLauncher.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime.NoAvx" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime.Cuda.Windows" Version="1.9.1" />
+    <Content Include="$(NuGetPackageRoot)whisper.net\1.9.1\LICENSE" Link="licenses\Whisper.net.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)naudio\2.2.1\license.txt" Link="licenses\NAudio.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(VCRuntimeDirectory)\vcruntime140.dll;$(VCRuntimeDirectory)\vcruntime140_1.dll;$(VCRuntimeDirectory)\msvcp140.dll;$(VCRuntimeDirectory)\vcomp140.dll">
+      <Link>native\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <Target Name="RequireVCRuntime" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(VCRuntimeDirectory)\vcruntime140.dll') Or !Exists('$(VCRuntimeDirectory)\vcruntime140_1.dll') Or !Exists('$(VCRuntimeDirectory)\msvcp140.dll') Or !Exists('$(VCRuntimeDirectory)\vcomp140.dll')" Text="Install the Microsoft Visual C++ 2022 x64 redistributable on the build machine, or set VCRuntimeDirectory to its x64 CRT files." />
+  </Target>
+</Project>
