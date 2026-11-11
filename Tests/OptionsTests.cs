@@ -5,7 +5,7 @@ namespace VoiceSiteLauncher.Tests;
 public sealed class OptionsTests
 {
     [Fact]
-    public void DefaultsAreBaseAndAuto() => Assert.Equal(new LaunchOptions("base", "auto", false, false), LaunchOptions.Parse([]));
+    public void DefaultsAreSmallAndAuto() => Assert.Equal(new LaunchOptions("small", "auto", false, false), LaunchOptions.Parse([]));
 
     [Theory]
     [InlineData("base", "cpu")]
@@ -19,7 +19,7 @@ public sealed class OptionsTests
     [InlineData("--install-startup", true, false)]
     [InlineData("--remove-startup", false, true)]
     public void StartupIsExplicit(string argument, bool install, bool remove) => Assert.Equal(
-        new LaunchOptions("base", "auto", install, remove), LaunchOptions.Parse([argument]));
+        new LaunchOptions("small", "auto", install, remove), LaunchOptions.Parse([argument]));
 
     [Theory]
     [InlineData("--model")]

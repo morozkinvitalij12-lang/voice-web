@@ -8,23 +8,21 @@ namespace VoiceSiteLauncher.Tests;
 public sealed class RecorderTests
 {
     [Fact]
-    public async Task ConvertsPcmAndClearsAllManagedBuffers()
+    public async Task ConvertsPcmAndTransfersBufferOwnership()
     {
         var fake = new FakeCapture();
         var recorder = new AudioRecorder(() => fake);
         recorder.Start();
         var bytes = Pcm(4000);
         fake.Emit(bytes);
-        var chunks = Chunks(recorder).ToArray();
         Assert.All(bytes, value => Assert.Equal((byte)0, value));
-        var audio = await recorder.StopAsync();
-        Assert.Equal(4000, audio.Length);
-        Assert.Equal(-1f, audio[0]);
-        Assert.Equal(0.5f, audio[1]);
-        Assert.All(chunks.SelectMany(x => x), value => Assert.Equal(0f, value));
-        Assert.Empty(Chunks(recorder));
+        var (buffer, length) = await recorder.StopAsync();
+        Assert.Equal(4000, length);
+        Assert.Equal(-1f, buffer[0]);
+        Assert.Equal(0.5f, buffer[1]);
+        Assert.Null(BufferField(recorder));
         Assert.True(fake.Disposed);
-        Array.Clear(audio);
+        Array.Clear(buffer);
     }
 
     [Fact]
@@ -35,6 +33,7 @@ public sealed class RecorderTests
         recorder.Start();
         await Assert.ThrowsAsync<InvalidOperationException>(() => recorder.StopAsync().WaitAsync(TimeSpan.FromSeconds(2)));
         Assert.True(fake.Disposed);
+        Assert.Null(BufferField(recorder));
     }
 
     [Fact]
@@ -48,21 +47,25 @@ public sealed class RecorderTests
         Assert.False(task.IsCompleted);
         Assert.False(fake.Disposed);
         fake.Finish();
-        var audio = await task.WaitAsync(TimeSpan.FromSeconds(2));
+        var (buffer, length) = await task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(4000, length);
         Assert.True(fake.Disposed);
-        Array.Clear(audio);
+        Array.Clear(buffer);
     }
 
     [Fact]
-    public async Task DiscardClearsChunksAndReturnsNoAudio()
+    public async Task DiscardClearsBufferAndReturnsNoAudio()
     {
         var fake = new FakeCapture();
         var recorder = new AudioRecorder(() => fake);
         recorder.Start();
         fake.Emit(Pcm(4000));
-        var chunks = Chunks(recorder).ToArray();
-        Assert.Empty(await recorder.StopAsync(discard: true));
-        Assert.All(chunks.SelectMany(x => x), value => Assert.Equal(0f, value));
+        var buffer = BufferField(recorder)!;
+        var (empty, length) = await recorder.StopAsync(discard: true);
+        Assert.Empty(empty);
+        Assert.Equal(0, length);
+        Assert.Null(BufferField(recorder));
+        Assert.All(buffer, value => Assert.Equal(0f, value));
     }
 
     [Theory]
@@ -74,9 +77,11 @@ public sealed class RecorderTests
         var fake = new FakeCapture();
         var recorder = new AudioRecorder(() => fake);
         recorder.Start();
+        var buffer = BufferField(recorder)!;
         fake.Emit(Pcm(count));
         await Assert.ThrowsAsync<InvalidOperationException>(() => recorder.StopAsync());
-        Assert.Empty(Chunks(recorder));
+        Assert.Null(BufferField(recorder));
+        Assert.All(buffer, value => Assert.Equal(0f, value));
     }
 
     [Fact]
@@ -85,13 +90,15 @@ public sealed class RecorderTests
         var fake = new FakeCapture();
         var recorder = new AudioRecorder(() => fake);
         recorder.Start();
+        var buffer = BufferField(recorder)!;
         fake.Emit(Pcm(16_000 * 120));
         var overflow = Pcm(1);
         fake.Emit(overflow);
         Assert.All(overflow, value => Assert.Equal((byte)0, value));
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => recorder.StopAsync());
         Assert.Contains("120", error.Message);
-        Assert.Empty(Chunks(recorder));
+        Assert.Null(BufferField(recorder));
+        Assert.All(buffer, value => Assert.Equal(0f, value));
     }
 
     [Fact]
@@ -100,10 +107,12 @@ public sealed class RecorderTests
         var fake = new FakeCapture { StopError = new IOException("disconnected") };
         var recorder = new AudioRecorder(() => fake);
         recorder.Start();
+        var buffer = BufferField(recorder)!;
         fake.Emit(Pcm(4000));
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => recorder.StopAsync());
         Assert.Contains("disconnected", error.Message);
-        Assert.Empty(Chunks(recorder));
+        Assert.Null(BufferField(recorder));
+        Assert.All(buffer, value => Assert.Equal(0f, value));
         Assert.True(fake.Disposed);
     }
 
@@ -116,10 +125,10 @@ public sealed class RecorderTests
         var recorder = new AudioRecorder(() => fake);
         Assert.Throws<IOException>(() => recorder.Start());
         Assert.True(fake.Disposed);
-        Assert.Empty(Chunks(recorder));
+        Assert.Null(BufferField(recorder));
         var late = Pcm(4000);
         fake.Emit(late);
-        Assert.Empty(Chunks(recorder));
+        Assert.Null(BufferField(recorder));
         Assert.All(late, value => Assert.Equal((byte)0, value));
     }
 
@@ -132,24 +141,28 @@ public sealed class RecorderTests
         var recorder = new AudioRecorder(() => fake);
         recorder.Start();
         fake.Emit(Pcm(4000));
-        var chunks = Chunks(recorder).ToArray();
+        var buffer = BufferField(recorder)!;
         await Assert.ThrowsAsync<IOException>(() => recorder.StopAsync(discard: true));
-        Assert.All(chunks.SelectMany(x => x), value => Assert.Equal(0f, value));
-        Assert.Empty(Chunks(recorder));
+        Assert.Null(BufferField(recorder));
+        Assert.All(buffer, value => Assert.Equal(0f, value));
         fake.Emit(Pcm(4000));
-        Assert.Empty(Chunks(recorder));
-        Assert.Empty(await recorder.StopAsync());
+        Assert.Null(BufferField(recorder));
+        var (empty, length) = await recorder.StopAsync();
+        Assert.Empty(empty);
+        Assert.Equal(0, length);
     }
 
     [Fact]
     public async Task IdleStopDoesNotCreateCapture()
     {
         var recorder = new AudioRecorder(() => throw new InvalidOperationException("must not open"));
-        Assert.Empty(await recorder.StopAsync());
+        var (empty, length) = await recorder.StopAsync();
+        Assert.Empty(empty);
+        Assert.Equal(0, length);
     }
 
-    private static List<float[]> Chunks(AudioRecorder recorder) => (List<float[]>)typeof(AudioRecorder)
-        .GetField("_chunks", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(recorder)!;
+    private static float[]? BufferField(AudioRecorder recorder) => (float[]?)typeof(AudioRecorder)
+        .GetField("_buffer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(recorder);
 
     private static byte[] Pcm(int count)
     {

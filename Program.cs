@@ -8,7 +8,7 @@ internal sealed record LaunchOptions(string Model, string Device, bool InstallSt
 {
     public static LaunchOptions Parse(string[] args)
     {
-        var model = "base";
+        var model = "small";
         var device = "auto";
         var install = false;
         var remove = false;

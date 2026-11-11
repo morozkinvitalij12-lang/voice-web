@@ -6,14 +6,14 @@ namespace VoiceSiteLauncher;
 
 internal sealed class TrayApplication : ApplicationContext
 {
-    private readonly Control _ui = new();
+    private readonly KeyboardInputWindow _ui;
     private readonly NotifyIcon _tray;
     private readonly ContextMenuStrip _menu = new();
+    private readonly System.Windows.Forms.Timer _idleTimer;
     private readonly CancellationTokenSource _cancel = new();
     private readonly LaunchOptions _options;
     private readonly PushToTalk _keys;
     private Icon? _glyph;
-    private KeyboardHook? _hook;
     private SpeechRecognizer? _recognizer;
     private AudioRecorder? _recorder;
     private Task _operation = Task.CompletedTask;
@@ -25,7 +25,19 @@ internal sealed class TrayApplication : ApplicationContext
     {
         _options = options;
         _keys = new PushToTalk(StartRecording, StopRecording);
+        _ui = new KeyboardInputWindow((scanCode, down) =>
+        {
+            if (!_closing)
+                _keys.Handle(scanCode, down);
+        });
         _ = _ui.Handle;
+        _idleTimer = new System.Windows.Forms.Timer { Interval = 30_000 };
+        _idleTimer.Tick += (_, _) =>
+        {
+            if (_ready && !_busy && !_closing)
+                _recognizer?.UnloadIfIdle(TimeSpan.FromMinutes(5));
+        };
+        _idleTimer.Start();
         _menu.Items.Add("Выход", null, (_, _) => BeginShutdown());
         _tray = new NotifyIcon { Text = Program.AppName, ContextMenuStrip = _menu };
         SetStatus("Загрузка модели...", Color.Gray);
@@ -40,12 +52,6 @@ internal sealed class TrayApplication : ApplicationContext
             _recognizer = await Task.Run(() => SpeechRecognizer.CreateAsync(_options, PostStatus, _cancel.Token));
             if (_closing)
                 return;
-            _hook = new KeyboardHook((scanCode, down) =>
-                _ui.BeginInvoke((Action)(() =>
-                {
-                    if (!_closing)
-                        _keys.Handle(scanCode, down);
-                })));
             _ready = true;
             SetStatus("Готово: удерживайте V + F6", Color.ForestGreen);
         }
@@ -93,14 +99,17 @@ internal sealed class TrayApplication : ApplicationContext
 
     private async Task StopAndRecognizeAsync(AudioRecorder recorder)
     {
-        float[]? audio = null;
+        float[]? buffer = null;
         try
         {
             SetStatus("Распознавание...", Color.Goldenrod);
-            audio = await recorder.StopAsync();
+            var (audio, length) = await recorder.StopAsync();
+            buffer = audio;
             _cancel.Token.ThrowIfCancellationRequested();
-            var text = await Task.Run(() => _recognizer!.RecognizeAsync(audio, _cancel.Token));
-            Array.Clear(audio);
+            var memory = audio.AsMemory(0, length);
+            var text = await Task.Run(() => _recognizer!.RecognizeAsync(memory, _cancel.Token));
+            Array.Clear(buffer);
+            buffer = null;
             if (_closing)
                 return;
             if (text.Length == 0)
@@ -123,8 +132,8 @@ internal sealed class TrayApplication : ApplicationContext
         }
         finally
         {
-            if (audio is not null)
-                Array.Clear(audio);
+            if (buffer is not null)
+                Array.Clear(buffer);
             _busy = false;
             if (!_closing)
                 SetStatus("Готово: удерживайте V + F6", Color.ForestGreen);
@@ -138,8 +147,7 @@ internal sealed class TrayApplication : ApplicationContext
         _closing = true;
         _ready = false;
         _cancel.Cancel();
-        _hook?.Dispose();
-        _hook = null;
+        _idleTimer.Stop();
         SetStatus("Завершение...", Color.Gray);
         _ = ShutdownAsync();
     }
@@ -250,7 +258,7 @@ internal sealed class TrayApplication : ApplicationContext
     {
         if (disposing)
         {
-            _hook?.Dispose();
+            _idleTimer.Dispose();
             _tray.Dispose();
             _glyph?.Dispose();
             _menu.Dispose();

@@ -15,7 +15,7 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>VoiceSiteLauncher</AssemblyName>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <VCRuntimeDirectory Condition="'$(VCRuntimeDirectory)' == ''">$(SystemRoot)\System32</VCRuntimeDirectory>
   </PropertyGroup>
   <ItemGroup>
@@ -26,8 +26,6 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
-    <PackageReference Include="Whisper.net.Runtime.NoAvx" Version="1.9.1" />
-    <PackageReference Include="Whisper.net.Runtime.Cuda.Windows" Version="1.9.1" />
     <Content Include="$(NuGetPackageRoot)whisper.net\1.9.1\LICENSE" Link="licenses\Whisper.net.txt" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(NuGetPackageRoot)naudio\2.2.1\license.txt" Link="licenses\NAudio.txt" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(VCRuntimeDirectory)\vcruntime140.dll;$(VCRuntimeDirectory)\vcruntime140_1.dll;$(VCRuntimeDirectory)\msvcp140.dll;$(VCRuntimeDirectory)\vcomp140.dll">

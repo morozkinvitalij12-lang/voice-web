@@ -8,10 +8,10 @@ internal sealed class AudioRecorder
     private const int SampleRate = 16_000;
     private const int MaximumSamples = SampleRate * 120;
     private readonly object _gate = new();
-    private readonly List<float[]> _chunks = [];
     private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private bool _acceptData = true;
     private readonly Func<IWaveIn> _createCapture;
+    private float[]? _buffer;
+    private bool _acceptData = true;
     private IWaveIn? _capture;
     private string? _problem;
     private int _samples;
@@ -32,6 +32,7 @@ internal sealed class AudioRecorder
     {
         var capture = _createCapture();
         _capture = capture;
+        _buffer = new float[MaximumSamples];
         capture.DataAvailable += OnData;
         capture.RecordingStopped += OnStopped;
         try
@@ -49,7 +50,7 @@ internal sealed class AudioRecorder
             finally
             {
                 _capture = null;
-                ClearChunks();
+                ClearBuffer();
             }
             throw;
         }
@@ -61,7 +62,7 @@ internal sealed class AudioRecorder
         {
             try
             {
-                if (!_acceptData || _problem is not null)
+                if (!_acceptData || _problem is not null || _buffer is null)
                     return;
                 var count = args.BytesRecorded / 2;
                 if (_samples + count > MaximumSamples)
@@ -69,10 +70,10 @@ internal sealed class AudioRecorder
                     _problem = "Запись длиннее 120 секунд. Повторите более короткую фразу.";
                     return;
                 }
-                var chunk = new float[count];
+                // Один предаллоцированный буфер: пик ОЗУ ограничен 120 секундами без второй копии.
+                var destination = _buffer.AsSpan(_samples, count);
                 for (var i = 0; i < count; i++)
-                    chunk[i] = BinaryPrimitives.ReadInt16LittleEndian(args.Buffer.AsSpan(i * 2, 2)) / 32768f;
-                _chunks.Add(chunk);
+                    destination[i] = BinaryPrimitives.ReadInt16LittleEndian(args.Buffer.AsSpan(i * 2, 2)) / 32768f;
                 _samples += count;
             }
             finally
@@ -92,11 +93,11 @@ internal sealed class AudioRecorder
         _stopped.TrySetResult();
     }
 
-    public async Task<float[]> StopAsync(bool discard = false)
+    public async Task<(float[] Buffer, int Length)> StopAsync(bool discard = false)
     {
         var capture = _capture;
         if (capture is null)
-            return [];
+            return ([], 0);
         try
         {
             capture.StopRecording();
@@ -104,19 +105,16 @@ internal sealed class AudioRecorder
             lock (_gate)
             {
                 if (discard)
-                    return [];
+                    return ([], 0);
                 if (_problem is not null)
                     throw new InvalidOperationException(_problem);
                 if (_samples < SampleRate / 4)
                     throw new InvalidOperationException("Запись слишком короткая. Удерживайте V + F6 и произнесите фразу.");
-                var result = new float[_samples];
-                var offset = 0;
-                foreach (var chunk in _chunks)
-                {
-                    chunk.CopyTo(result, offset);
-                    offset += chunk.Length;
-                }
-                return result;
+                // Владение буфером переходит вызывающему: он очищает его после распознавания.
+                var buffer = _buffer!;
+                var length = _samples;
+                _buffer = null;
+                return (buffer, length);
             }
         }
         finally
@@ -130,18 +128,20 @@ internal sealed class AudioRecorder
             finally
             {
                 _capture = null;
-                ClearChunks();
+                ClearBuffer();
             }
         }
     }
 
-    private void ClearChunks()
+    private void ClearBuffer()
     {
         lock (_gate)
         {
-            foreach (var chunk in _chunks)
-                Array.Clear(chunk);
-            _chunks.Clear();
+            if (_buffer is not null)
+            {
+                Array.Clear(_buffer);
+                _buffer = null;
+            }
             _samples = 0;
         }
     }
