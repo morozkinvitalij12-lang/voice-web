@@ -9,6 +9,11 @@ internal sealed class TrayApplication : ApplicationContext
     private readonly KeyboardInputWindow _ui;
     private readonly NotifyIcon _tray;
     private readonly ContextMenuStrip _menu = new();
+    private readonly ToolStripMenuItem _startupItem = new("Запускать при входе в Windows")
+    {
+        ToolTipText = "При входе потребуется подтвердить права администратора.",
+        AccessibleDescription = "Включает или отключает запуск приложения при входе в Windows. Потребуется подтверждение прав администратора."
+    };
     private readonly System.Windows.Forms.Timer _idleTimer;
     private readonly CancellationTokenSource _cancel = new();
     private readonly LaunchOptions _options;
@@ -38,6 +43,13 @@ internal sealed class TrayApplication : ApplicationContext
                 _recognizer?.UnloadIfIdle(TimeSpan.FromMinutes(5));
         };
         _idleTimer.Start();
+        RefreshStartup();
+        _startupItem.Click += (_, _) => ToggleStartup();
+        var settings = new ToolStripMenuItem("Настройки");
+        settings.DropDownItems.Add(_startupItem);
+        settings.DropDownOpening += (_, _) => RefreshStartup();
+        _menu.Items.Add(settings);
+        _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add("Выход", null, (_, _) => BeginShutdown());
         _tray = new NotifyIcon { Text = Program.AppName, ContextMenuStrip = _menu };
         SetStatus("Загрузка модели...", Color.Gray);
@@ -140,11 +152,62 @@ internal sealed class TrayApplication : ApplicationContext
         }
     }
 
+    private void RefreshStartup()
+    {
+        try
+        {
+            _startupItem.Checked = StartupShortcut.ForInteractiveUser(path => StartupShortcut.IsEnabled(path));
+            _startupItem.Enabled = !_closing;
+            _startupItem.Text = "Запускать при входе в Windows";
+            _startupItem.ToolTipText = "При входе потребуется подтвердить права администратора.";
+        }
+        catch (Exception error)
+        {
+            _startupItem.Checked = false;
+            _startupItem.Enabled = false;
+            _startupItem.Text = "Автозапуск недоступен";
+            _startupItem.ToolTipText = error.Message;
+            AppLog.Write("Ошибка проверки автозапуска: " + error);
+        }
+    }
+
+    private void ToggleStartup()
+    {
+        if (_closing)
+            return;
+        try
+        {
+            var enabled = StartupShortcut.ForInteractiveUser(path =>
+            {
+                if (StartupShortcut.IsEnabled(path))
+                {
+                    StartupShortcut.Remove(path);
+                    return false;
+                }
+                StartupShortcut.Install(_options, path);
+                return true;
+            });
+            Notify("Автозапуск", enabled
+                ? "Автозапуск включён. При входе в Windows потребуется подтвердить права администратора."
+                : "Автозапуск отключён.", ToolTipIcon.Info);
+        }
+        catch (Exception error)
+        {
+            AppLog.Write("Ошибка автозапуска: " + error);
+            Notify("Не удалось изменить автозапуск", error.Message);
+        }
+        finally
+        {
+            RefreshStartup();
+        }
+    }
+
     private void BeginShutdown()
     {
         if (_closing)
             return;
         _closing = true;
+        _startupItem.Enabled = false;
         _ready = false;
         _cancel.Cancel();
         _idleTimer.Stop();
@@ -214,15 +277,16 @@ internal sealed class TrayApplication : ApplicationContext
         }
     }
 
-    private void Notify(string title, string message)
+    private void Notify(string title, string message, ToolTipIcon icon = ToolTipIcon.Warning)
     {
         try
         {
-            _tray.ShowBalloonTip(7000, title, message, ToolTipIcon.Warning);
+            _tray.ShowBalloonTip(7000, title, message, icon);
         }
         catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            MessageBox.Show(message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(message, title, MessageBoxButtons.OK,
+                icon == ToolTipIcon.Info ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         }
     }
 
